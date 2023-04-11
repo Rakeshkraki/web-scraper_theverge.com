@@ -2,67 +2,49 @@ import requests
 from bs4 import BeautifulSoup
 import sqlite3
 import csv
-from datetime import datetime
+import datetime
+
+url = 'https://www.theverge.com/'
+response = requests.get(url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+articles = soup.find_all('article', class_='c-entry-box--compact__body')
+
+now = datetime.datetime.now()
+id_prefix = now.strftime('%Y%m%d%H%M%S')
+
+csv_file_name = now.strftime('%d%m%Y_verge.csv')
+csv_file = open(csv_file_name, 'w')
+csv_writer = csv.writer(csv_file)
+csv_writer.writerow(['id', 'URL', 'headline', 'author', 'date'])
+
+conn = sqlite3.connect('verge.db')
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS articles
+             (id TEXT PRIMARY KEY,
+              url TEXT,
+              headline TEXT,
+              author TEXT,
+              date TEXT)''')
+
+for i, article in enumerate(articles):
+
+    article_url = article.find('a')['href']
+    headline = article.find(
+        'h2', class_='c-entry-box--compact__title').text.strip()
+    author = article.find('span', class_='c-byline__author-name').text.strip()
+    date = article.find('time')['datetime']
+
+    id = id_prefix + str(i + 1)
+
+    csv_writer.writerow([id, article_url, headline, author, date])
+
+    c.execute("INSERT OR IGNORE INTO articles VALUES (?, ?, ?, ?, ?)",
+              (id, article_url, headline, author, date))
 
 
-def scrape_theverge():
-    url = 'https://www.theverge.com/'
+conn.commit()
+conn.close()
 
-    response = requests.get(url)
-    content = response.content
+csv_file.close()
 
-    soup = BeautifulSoup(content, 'html.parser')
-
-    articles = soup.find_all('article')
-
-    data = []
-
-    for article in articles:
-        headline = article.find(
-            'h2', {'class': 'c-entry-box--compact__title'}).text.strip()
-
-        link = article.find(
-            'a', {'class': 'c-entry-box--compact__image-wrapper'}).get('href')
-
-        author = article.find('span', {'class': 'c-byline__item'}).text.strip()
-
-        date = article.find(
-            'time', {'class': 'c-byline__item'}).get('datetime')
-
-        data.append((link, headline, author, date))
-
-    csv_filename = datetime.now().strftime('%d%m%Y') + '_verge.csv'
-
-    with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-
-        writer.writerow(['id', 'URL', 'headline', 'author', 'date'])
-
-        # Loop over the data and write each row to the CSV file
-        for i, row in enumerate(data):
-            writer.writerow([i+1] + list(row))
-
-    # Define the database name
-    db_name = 'theverge.db'
-
-    # Connect to the database or create it if it doesn't exist
-    conn = sqlite3.connect(db_name)
-
-    # Create a cursor object
-    cursor = conn.cursor()
-
-    # Create the articles table
-    cursor.execute('''CREATE TABLE IF NOT EXISTS articles
-                      (id INTEGER PRIMARY KEY, URL TEXT, headline TEXT, author TEXT, date TEXT)''')
-
-    # Insert the data into the table
-    cursor.executemany(
-        '''INSERT INTO articles (URL, headline, author, date) VALUES (?, ?, ?, ?)''', data)
-
-    # Commit the changes and close the connection
-    conn.commit()
-    conn.close()
-
-
-if __name__ == '__main__':
-    scrape_theverge()
